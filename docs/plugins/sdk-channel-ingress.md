@@ -71,11 +71,29 @@ separate command-group override; when omitted, it inherits the normal group
 fallback flag. `command.groupOwnerAllowFromFallbackToAllowFrom` controls the
 legacy group command-owner fallback and defaults to enabled for compatibility.
 
-When a channel disables one of these fallbacks, declare matching doctor
-capability metadata so `openclaw doctor --fix` can copy existing DM `allowFrom`
-entries into the explicit target. Runtime config loading does not perform this
-repair. Channel-local pre-resolution fallback is still channel-owned and must be
-removed in the channel plugin before the metadata target is declared.
+When a channel disables one of these fallbacks, update the runtime resolver
+input and the doctor capability metadata in the same channel PR. Runtime config
+loading does not perform this repair; `openclaw doctor --fix` is the only
+preservation-copy path.
+
+Use these runtime flags before declaring the matching manifest metadata:
+
+| Fallback family               | Runtime input to set                                      | Required explicit input                                                                                              |
+| ----------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Normal group sender fallback  | `policy.groupAllowFromFallbackToAllowFrom: false`         | `groupAllowFrom` or a route sender allowlist that replaces the legacy fallback.                                      |
+| Group command-sender fallback | `command.commandGroupAllowFromFallbackToAllowFrom: false` | `command.commandGroupAllowFrom`, unless command authorization is intentionally covered by explicit `groupAllowFrom`. |
+| Group command-owner fallback  | `command.groupOwnerAllowFromFallbackToAllowFrom: false`   | `command.groupOwnerAllowFrom`, or an intentional no-owner mode such as the legacy `"none"` sentinel.                 |
+
+Provider-wide command fallback and elevated fallback are not ingress resolver
+inputs. Those paths read prepared channel capability metadata, so the channel PR
+must ensure the command or elevated authorization path already has an explicit
+target before declaring the fallback disabled.
+
+After the runtime consumes the explicit target, set the corresponding
+`package.json#openclaw.channel.doctorCapabilities` fields described in
+[Plugin manifest](/plugins/manifest#disable-fallback-in-a-channel-pr). Do not
+declare a `legacyDm...MigrationTarget` for a config key that the channel schema
+does not accept or the channel runtime does not read.
 
 ## Result
 
