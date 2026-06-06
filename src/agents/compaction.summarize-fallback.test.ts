@@ -63,6 +63,34 @@ describe("summarizeWithFallback", () => {
     expect(piCodingAgentMocks.generateSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("uses structural fallback when full summarization auth is missing Responses write scope", async () => {
+    piCodingAgentMocks.generateSummary.mockRejectedValueOnce(
+      new Error("401 Missing scopes: api.responses.write"),
+    );
+
+    const messages: AgentMessage[] = [
+      {
+        role: "user",
+        content: "hello",
+        timestamp: 1,
+      } satisfies UserMessage,
+    ];
+
+    const result = await summarizeWithFallback({
+      messages,
+      model: testModel,
+      apiKey: "test-key", // pragma: allowlist secret
+      signal: new AbortController().signal,
+      reserveTokens: 1000,
+      maxChunkTokens: 50_000,
+      contextWindow: 200_000,
+    });
+
+    expect(result).toContain("Context contained 1 messages (0 oversized)");
+    expect(result).toContain("cannot write Responses API summaries");
+    expect(piCodingAgentMocks.generateSummary).toHaveBeenCalledTimes(1);
+  });
+
   it("still attempts partial summarization when oversized messages were excluded", async () => {
     piCodingAgentMocks.estimateTokens.mockImplementation((message: unknown) => {
       const content =
@@ -98,5 +126,45 @@ describe("summarizeWithFallback", () => {
     expect(result).toContain("2 messages (1 oversized)");
     // Full attempt plus distinct partial transcript; timeout-classed failures do not retry.
     expect(piCodingAgentMocks.generateSummary.mock.calls.length).toBe(2);
+  });
+
+  it("uses structural fallback when partial summarization auth is missing Responses write scope", async () => {
+    piCodingAgentMocks.estimateTokens.mockImplementation((message: unknown) => {
+      const content =
+        typeof (message as { content?: unknown }).content === "string"
+          ? (message as { content: string }).content
+          : "";
+      return content.length > 10_000 ? 500_000 : 100;
+    });
+    piCodingAgentMocks.generateSummary
+      .mockRejectedValueOnce(new Error("Summarization failed: fetch failed"))
+      .mockRejectedValueOnce(new Error("401 Missing scopes: api.responses.write"));
+
+    const messages: AgentMessage[] = [
+      {
+        role: "user",
+        content: "small",
+        timestamp: 1,
+      } satisfies UserMessage,
+      {
+        role: "user",
+        content: "x".repeat(500_000),
+        timestamp: 2,
+      } satisfies UserMessage,
+    ];
+
+    const result = await summarizeWithFallback({
+      messages,
+      model: testModel,
+      apiKey: "test-key", // pragma: allowlist secret
+      signal: new AbortController().signal,
+      reserveTokens: 1000,
+      maxChunkTokens: 50_000,
+      contextWindow: 200_000,
+    });
+
+    expect(result).toContain("Context contained 2 messages (1 oversized)");
+    expect(result).toContain("cannot write Responses API summaries");
+    expect(piCodingAgentMocks.generateSummary).toHaveBeenCalledTimes(2);
   });
 });

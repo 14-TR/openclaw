@@ -175,6 +175,7 @@ import {
   resolveRunLivenessState,
   shouldTreatEmptyAssistantReplyAsSilent,
 } from "./run/incomplete-turn.js";
+import { resolveEmbeddedRunLaneTimeoutMs } from "./run/lane-timeout.js";
 import type { RunEmbeddedPiAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import { handleRetryLimitExhaustion } from "./run/retry-limit.js";
@@ -201,7 +202,6 @@ import { createUsageAccumulator, mergeUsageIntoAccumulator } from "./usage-accum
 type ApiKeyInfo = ResolvedProviderAuth;
 
 const MAX_SAME_MODEL_IDLE_TIMEOUT_RETRIES = 1;
-const EMBEDDED_RUN_LANE_TIMEOUT_GRACE_MS = 30_000;
 const MID_TURN_PRECHECK_CONTINUATION_PROMPT =
   "Continue from the current transcript after the latest tool result. Do not repeat the original user request, and do not rerun completed tools unless the transcript shows they are still needed.";
 const COMPACTION_CONTINUATION_RETRY_INSTRUCTION =
@@ -216,13 +216,6 @@ function resolveAttemptDispatchApiKey(params: {
     return undefined;
   }
   return params.apiKeyInfo?.apiKey;
-}
-
-function resolveEmbeddedRunLaneTimeoutMs(timeoutMs: number): number | undefined {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return undefined;
-  }
-  return Math.floor(timeoutMs) + EMBEDDED_RUN_LANE_TIMEOUT_GRACE_MS;
 }
 
 function withEmbeddedRunLaneTimeout(

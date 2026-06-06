@@ -358,7 +358,8 @@ async function summarizeChunks(params: {
           maxDelayMs: 5000,
           jitter: 0.2,
           label: "compaction/generateSummary",
-          shouldRetry: (err) => !isAbortError(err) && !isTimeoutError(err),
+          shouldRetry: (err) =>
+            !isAbortError(err) && !isTimeoutError(err) && !isMissingResponsesWriteScopeError(err),
         },
       );
       hasGeneratedChunk = true;
@@ -425,6 +426,21 @@ function generateSummary(
   );
 }
 
+function isMissingResponsesWriteScopeError(error: unknown): boolean {
+  const text = formatErrorMessage(error);
+  return text.includes("api.responses.write") && text.toLowerCase().includes("missing scopes");
+}
+
+function buildStructuralSummaryFallback(
+  messages: AgentMessage[],
+  oversizedNotes: string[],
+): string {
+  return (
+    `Context contained ${messages.length} messages (${oversizedNotes.length} oversized). ` +
+    "Summary unavailable because the configured compaction auth profile cannot write Responses API summaries."
+  );
+}
+
 /**
  * Summarize with progressive fallback for handling oversized messages.
  * If full summarization fails, tries partial summarization excluding oversized messages.
@@ -455,6 +471,12 @@ export async function summarizeWithFallback(params: {
   } catch (fullError) {
     log.warn(`Full summarization failed: ${formatErrorMessage(fullError)}`);
     partialSummaryFallback = (fullError as PartialSummaryError).partialSummary;
+    if (isMissingResponsesWriteScopeError(fullError)) {
+      log.warn(
+        "Compaction summarization auth is missing api.responses.write; using structural summary fallback instead of retrying the same under-scoped profile.",
+      );
+      return buildStructuralSummaryFallback(messages, []);
+    }
   }
 
   // Fallback 1: Summarize only small messages, note oversized ones
@@ -485,6 +507,12 @@ export async function summarizeWithFallback(params: {
       return partialSummary + notes;
     } catch (partialError) {
       log.warn(`Partial summarization also failed: ${formatErrorMessage(partialError)}`);
+      if (isMissingResponsesWriteScopeError(partialError)) {
+        log.warn(
+          "Partial compaction summarization auth is missing api.responses.write; using structural summary fallback.",
+        );
+        return buildStructuralSummaryFallback(messages, oversizedNotes);
+      }
       // Prefer the oversized retry's partial summary over the full attempt's,
       // since it covers the non-oversized transcript. Append oversized notes
       // so the model knows large content was filtered.
